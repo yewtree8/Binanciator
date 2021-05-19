@@ -1,17 +1,12 @@
 import cryptocompare
 import pprint
+import yaml
 from binance.client import Client
-
-ACTUAL_INVESTMENT = float(0)  # Manually count up your actual investment here, binance does not account for fees.
+from binance.exceptions import BinanceAPIException
 
 menuDict = dict()
 
-API_KEY = ""  # Your Binance API Key
-API_SECRET = ""  # Your Binance API Secret
-
-CRYPTO_COMPARE_API_KEY = ""  # Your cryptocurrency compare api key, found at https://www.cryptocompare.com/
-
-cryptocompare.cryptocompare._set_api_key_parameter(CRYPTO_COMPARE_API_KEY)
+cryptocompare.cryptocompare._set_api_key_parameter("e982ffdf86a326d4f41a6f4b9272a0036185f393be8161ce8ceb3cb4068aff2c")
 
 
 def kermit():
@@ -21,14 +16,27 @@ def kermit():
 class CryptoApp:
     def __init__(self):
         self.loaded = False
-        self.api_key = API_KEY
-        self.api_secret = API_SECRET
-        self.client = Client(self.api_key, self.api_secret)
         self.currentMenu = None
+        self.api_key = ""
+        self.api_secret = ""
+        self.initialInvestment = ""
+        self.loadConfig()
+        self.client = Client(self.api_key, self.api_secret)
         self.dataDealer = cryptoDataDealer(self)
         self.initMenus()
         self.inputHandler = inputHandler(self)
         self.dataDealer.enable()
+
+    def loadConfig(self):
+        with open('config.yaml', "r") as keyFile:
+            cfg = yaml.load(keyFile, Loader=yaml.FullLoader)
+            binanceKey = cfg['binance-key']
+            binanceSecret = cfg['binance-secret']
+            initialGBPInvestment = cfg['initial-gbp-investment']
+        self.api_key = binanceKey
+        self.api_secret = binanceSecret
+        self.initialInvestment = float(initialGBPInvestment)
+        keyFile.close()
 
     def getClient(self):
         return self.client
@@ -48,14 +56,8 @@ class CryptoApp:
     def getCurrentMenu(self):
         return self.currentMenu
 
-    def getTotalSpentInvestment(self):
-        # trades = self.getClient().get_all_orders(symbol='GBPBUSD')
-        # THIS DOES NOT INCLUDE FEES IF YOU ORIGINALLY USED CARD
-        # totalGBP = 0
-        # for entry in trades:
-        #     qty = float(entry['origQty'])
-        #     totalGBP += qty
-        return ACTUAL_INVESTMENT
+    def getTotalSpentInvestment(self):  # BINANCE, GIVE ME AN ENDPOINT FOR CASH DEPOSITS???
+        return self.initialInvestment
 
     def destroy(self):
         if not self.getLoaded():
@@ -65,7 +67,7 @@ class CryptoApp:
     def initMenus(self):
         firstPanel = menuPanel('Main Menu', 1,
                                sections={'See Total investment': self.getTotalSpentInvestment(),  # see total spent
-                                         'Get Asset Breakdown & Value': self.getDataDealer().accountSnapshot(),  # full account overview
+                                         'Get Asset Breakdown & Value': self.getDataDealer().accountSnapshot(),
                                          "Current Profit / Loss": self.getDataDealer().getProfitLoss(),
                                          "See 'good' and 'bad' investments": self.getDataDealer().getPriceOverview(),
                                          'Exit': self.destroy()})
@@ -100,7 +102,7 @@ class cryptoDataDealer:
 
     def getProfitLoss(self):
         worth = self.getTotalWorth()
-        investment = ACTUAL_INVESTMENT
+        investment = self.getApplet().getTotalSpentInvestment()
         profitLoss = float(worth) - float(investment)
         string = '---\n'
         string += Colors.OKGREEN + "Profit " + ":£" + str(profitLoss) + "\n"
@@ -167,8 +169,13 @@ class cryptoDataDealer:
         return baseString
 
     def getActualWorth(self, coin, value):
-        price = cryptocompare.get_price(coin, currency='GBP')[coin]['GBP'] * value
-        return float(price)
+        try:
+            gpbDict = self.getApplet().getClient().get_symbol_ticker(symbol=coin + "GBP")
+            gbpPrice = float(gpbDict['price']) * value
+            return float(gbpPrice)
+        except BinanceAPIException as e:
+            price = cryptocompare.get_price(coin, currency='GBP')[coin]['GBP'] * value
+            return float(price)
 
     def getCurrentPriceForCoin(self, coin):
         if coin == 'BUSD':
@@ -232,16 +239,15 @@ class inputHandler:
         if self.isCorrectInput(selectionInput):
             menu = self.getCurrentMenu()
             menu.returnActionFromSelection(selectionInput)
-            print("Press any button to continue")
-            the = input()
-            if str(the) != 'break':
-                self.handleInputCycle()
+            print(Colors.ENDC + "Press any button to continue")
+            input()
+            self.handleInputCycle()
         else:
-            print("error: wrong selection, try again.")
+            print("Invalid Input, try again.")
             self.handleInputCycle()
 
     def isCorrectInput(self, input):
-        return 0 < input <= self.getCurrentMenu().getMaxAmountOfOptions()
+        return 0 < input <= self.getCurrentMenu().getMaxAmountOfOptions() or None and isinstance(input, int)
 
 
 class menuPanel:
